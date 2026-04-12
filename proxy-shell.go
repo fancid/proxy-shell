@@ -4,9 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"net/http"
+	"sync"
 )
 
-func fetchCycle() {
+func fetchCycle() []string {
 	apiURL := []string{
 		"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
 		"https://raw.githubusercontent.com/shiftytr/proxy-list/master/proxy.txt",
@@ -14,32 +15,50 @@ func fetchCycle() {
 	}
 
 	proxyMap := make(map[string]bool)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	for _, url := range apiURL {
-		var i int = 0
-		fmt.Printf("Fetching from: %s\n", url)
+		wg.Add(1) // Increment Count
 
-		results, err := fetch(url)
-		if err != nil {
-			fmt.Printf("  Skipping source due to error: %v\n", err)
-			continue
-		}
+		go func(url string) {
+			defer wg.Done()
 
-		// Add each found proxy to our map
-		for _, p := range results {
-			if p != "" { // Ensure we don't add empty strings
-				proxyMap[p] = true
-				i++
+			var i int = 0
+			fmt.Printf("Fetching from: %s\n", url)
+
+			results, err := fetch(url)
+			if err != nil {
+				fmt.Printf("  Skipping source due to error: %v\n", err)
+				return
 			}
-		}
-		if i == 0 {
-			fmt.Printf("  No Proxies Found in %s", url)
-		} else {
-			fmt.Printf("  Successfully added %d proxies.\n", i)
-		}
+
+			mu.Lock()
+			for _, p := range results {
+				if p != "" {
+					proxyMap[p] = true
+					i++
+				}
+			}
+			mu.Unlock()
+
+			if i == 0 {
+				fmt.Printf("  No Proxies Found in %s\n", url)
+			} else {
+				fmt.Printf("  Successfully added %d proxies. \n", i)
+			}
+		}(url)
 	}
 
+	wg.Wait()
+
 	fmt.Printf("\nTotal Proxies Fetched: %d\n", len(proxyMap))
+
+	var list []string
+	for p := range proxyMap {
+		list = append(list, p)
+	}
+	return list
 }
 
 func fetch(targetURL string) ([]string, error) {
@@ -58,7 +77,8 @@ func fetch(targetURL string) ([]string, error) {
 }
 
 func main() {
-	fetchCycle()
+	proxies := fetchCycle()
+
 	// TODO: Add Proxy Checker
 	// TODO: Test Proxy Checker
 	// TODO: Add Proxy Router

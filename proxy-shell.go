@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
 
 func fetchCycle() []string {
@@ -62,17 +63,39 @@ func fetchCycle() []string {
 }
 
 func fetch(targetURL string) ([]string, error) {
-	resp, err := http.Get(targetURL)
+	// Timeout so fetch doesn't wait too long
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
+	resp, err := client.Get(targetURL)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch %s: status %d", targetURL, resp.StatusCode)
+	}
+
 	var proxies []string
 	scanner := bufio.NewScanner(resp.Body)
+
+	const maxCapacity = 1024 * 1024 // 1 MB buffer to prevent crashes
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
 	for scanner.Scan() {
-		proxies = append(proxies, scanner.Text())
+		line := scanner.Text()
+		if line != "" {
+			proxies = append(proxies, line)
+		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading response: %v", err)
+	}
+
 	return proxies, nil
 }
 

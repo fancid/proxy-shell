@@ -26,11 +26,11 @@ func fetchCycle() []string {
 			defer wg.Done()
 
 			var i int = 0
-			fmt.Printf("Fetching from: %s\n", url)
+			fmt.Printf("[*] Fetching from: %s\n", url)
 
 			results, err := fetch(url)
 			if err != nil {
-				fmt.Printf("  Skipping source due to error: %v\n", err)
+				fmt.Printf("[X] Skipping source due to error: %v\n", err)
 				return
 			}
 
@@ -44,9 +44,9 @@ func fetchCycle() []string {
 			mu.Unlock()
 
 			if i == 0 {
-				fmt.Printf("  No Proxies Found in %s\n", url)
+				fmt.Printf("[X] No Proxies Found in %s\n", url)
 			} else {
-				fmt.Printf("  Successfully added %d proxies. \n", i)
+				fmt.Printf("[✓] Successfully added %d proxies from %s \n", i, url)
 			}
 		}(url)
 	}
@@ -75,7 +75,7 @@ func fetch(targetURL string) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch %s: status %d", targetURL, resp.StatusCode)
+		return nil, fmt.Errorf("[X] Failed to fetch %s: status %d", targetURL, resp.StatusCode)
 	}
 
 	var proxies []string
@@ -93,15 +93,16 @@ func fetch(targetURL string) ([]string, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading response: %v", err)
+		return nil, fmt.Errorf("[X] error reading response: %v", err)
 	}
 
 	return proxies, nil
 }
 
 func main() {
+	fmt.Println("== Proxy Shell Generator ==")
 	proxies := fetchCycle()
-
+	fmt.Printf("%d", len(proxies))
 	// TODO: Add Proxy Checker
 	// TODO: Test Proxy Checker
 	// TODO: Add Proxy Router

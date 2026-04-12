@@ -4,28 +4,80 @@ import (
 	"bufio"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
 
-func fetchCycle() []string {
-	apiURL := []string{
-		"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
-		"https://raw.githubusercontent.com/shiftytr/proxy-list/master/proxy.txt",
-		"https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
-	}
+// Proxy struct holds address, protocol, and latency metadata
+type Proxy struct {
+	Address  string
+	Protocol string
+	Latency  time.Duration
+}
 
-	proxyMap := make(map[string]bool)
+func main() {
+	fmt.Println("== Proxy Shell Generator ==")
+	proxies := fetchCycle()
+	for _, p := range proxies {
+		fmt.Printf("[%s], %s\n", p.Address, p.Protocol)
+	}
+	// TODO: Add Proxy Checker
+
+	// TODO: Test Proxy Checker
+	// TODO: Add Proxy Router
+	// TODO: Test Proxy Router
+}
+
+var apiURL = []string{
+	"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
+	"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
+	"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
+	"https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
+	"https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+	"https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks4.txt",
+	"https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
+	"https://raw.githubusercontent.com/mmpx12/proxy-list/master/http.txt",
+	"https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt",
+	"https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks4.txt",
+	"https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks5.txt",
+	"https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+	"https://raw.githubusercontent.com/shiftytr/proxy-list/master/proxy.txt",
+	"https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/proxies.txt",
+	"https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
+	"https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS4_RAW.txt",
+	"https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS5_RAW.txt",
+	"https://raw.githubusercontent.com/OpsXCQ/proxy-list/master/list.txt",
+	"https://raw.githubusercontent.com/rdavydov/proxy-list/master/proxies/http.txt",
+	"https://raw.githubusercontent.com/rdavydov/proxy-list/master/proxies/socks4.txt",
+	"https://raw.githubusercontent.com/rdavydov/proxy-list/master/proxies/socks5.txt",
+	"https://raw.githubusercontent.com/Vann-Dev/proxy-list/main/proxies/http.txt",
+	"https://raw.githubusercontent.com/Vann-Dev/proxy-list/main/proxies/https.txt",
+	"https://raw.githubusercontent.com/Vann-Dev/proxy-list/main/proxies/socks4.txt",
+	"https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/http.txt",
+	"https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/https.txt",
+	"https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/socks4.txt",
+	"https://raw.githubusercontent.com/prxchk/proxy-list/main/http.txt",
+	"https://raw.githubusercontent.com/prxchk/proxy-list/main/socks4.txt",
+	"https://raw.githubusercontent.com/prxchk/proxy-list/main/socks5.txt",
+	"https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/http.txt",
+	"https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",
+	"https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/socks4.txt",
+	"https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/socks5.txt",
+}
+
+// fetchCycle iterates over all api urls, calling fetch and inferProtocol
+func fetchCycle() []Proxy {
+	proxyMap := make(map[string]Proxy)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	for _, url := range apiURL {
-		wg.Add(1) // Increment Count
+		wg.Add(1) // Increment Counter
 
 		go func(url string) {
 			defer wg.Done()
 
-			var i int = 0
 			fmt.Printf("[*] Fetching from: %s\n", url)
 
 			results, err := fetch(url)
@@ -34,19 +86,25 @@ func fetchCycle() []string {
 				return
 			}
 
+			protocol := inferProtocol(url)
+
 			mu.Lock()
+			before := len(proxyMap)
 			for _, p := range results {
 				if p != "" {
-					proxyMap[p] = true
-					i++
+					proxyMap[p] = Proxy{
+						Address:  p,
+						Protocol: protocol,
+					}
 				}
 			}
+			added := len(proxyMap) - before
 			mu.Unlock()
 
-			if i == 0 {
+			if added == 0 {
 				fmt.Printf("[X] No Proxies Found in %s\n", url)
 			} else {
-				fmt.Printf("[✓] Successfully added %d proxies from %s \n", i, url)
+				fmt.Printf("[✓] Successfully added %d proxies from %s \n", added, url)
 			}
 		}(url)
 	}
@@ -55,15 +113,16 @@ func fetchCycle() []string {
 
 	fmt.Printf("\nTotal Proxies Fetched: %d\n", len(proxyMap))
 
-	var list []string
-	for p := range proxyMap {
+	// Convert map to slice
+	list := make([]Proxy, 0, len(proxyMap))
+	for _, p := range proxyMap {
 		list = append(list, p)
 	}
 	return list
 }
 
+// fetch parses the proxies from the url passed to it
 func fetch(targetURL string) ([]string, error) {
-	// Timeout so fetch doesn't wait too long
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 	}
@@ -81,7 +140,7 @@ func fetch(targetURL string) ([]string, error) {
 	var proxies []string
 	scanner := bufio.NewScanner(resp.Body)
 
-	const maxCapacity = 1024 * 1024 // 1 MB buffer to prevent crashes
+	const maxCapacity = 1024 * 1024 // 1 MB buffer
 	buf := make([]byte, maxCapacity)
 	scanner.Buffer(buf, maxCapacity)
 
@@ -99,12 +158,17 @@ func fetch(targetURL string) ([]string, error) {
 	return proxies, nil
 }
 
-func main() {
-	fmt.Println("== Proxy Shell Generator ==")
-	proxies := fetchCycle()
-	fmt.Printf("%d", len(proxies))
-	// TODO: Add Proxy Checker
-	// TODO: Test Proxy Checker
-	// TODO: Add Proxy Router
-	// TODO: Test Proxy Router
+// inferProtocol determines proxy protocol from the source URL
+func inferProtocol(sourceURL string) string {
+	lower := strings.ToLower(sourceURL)
+	switch {
+	case strings.Contains(lower, "socks5"):
+		return "socks5"
+	case strings.Contains(lower, "socks4"):
+		return "socks4"
+	case strings.Contains(lower, "https"):
+		return "https"
+	default:
+		return "http"
+	}
 }

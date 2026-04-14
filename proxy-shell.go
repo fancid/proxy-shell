@@ -2,11 +2,16 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"h12.io/socks"
 )
 
 // Proxy struct holds address, protocol, and latency metadata
@@ -18,13 +23,19 @@ type Proxy struct {
 
 func main() {
 	fmt.Println("== Proxy Shell Generator ==")
-	proxies := fetchCycle()
-	for _, p := range proxies {
-		fmt.Printf("[%s], %s\n", p.Address, p.Protocol)
+	timeStart := time.Now()
+	proxyList := fetchCycle()
+	validProxies := checkList(proxyList)
+	fmt.Printf("\nTotal Valid Proxies: %d\n", len(validProxies))
+	rankedProxies := rankProxies(validProxies)
+	fmt.Println("\nTop 10 Fastest Proxies:")
+	for i, p := range rankedProxies {
+		if i >= 10 {
+			break
+		}
+		fmt.Printf("%d. %s (%s) - %.2f seconds\n", i+1, p.Address, p.Protocol, p.Latency.Seconds())
 	}
-	// TODO: Add Proxy Checker
-
-	// TODO: Test Proxy Checker
+	fmt.Printf("\nExecution Time: %.2f seconds\n", time.Since(timeStart).Seconds())
 	// TODO: Add Proxy Router
 	// TODO: Test Proxy Router
 }
@@ -171,4 +182,138 @@ func inferProtocol(sourceURL string) string {
 	default:
 		return "http"
 	}
+}
+
+// checkList iterates through the proxylist to gather diagnostics on the proxies
+func checkList(Proxies []Proxy) []Proxy {
+	var (
+		mu    sync.Mutex
+		valid []Proxy
+		wg    sync.WaitGroup
+		sem   = make(chan struct{}, 1000)
+	)
+
+	for _, p := range Proxies {
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(p Proxy) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			if checkProxy(p) == 0 {
+				return
+			}
+
+			var totalLatency time.Duration
+
+			for i := 0; i < 5; i++ {
+				latency := checkProxy(p)
+				if latency == 0 {
+					return
+				}
+				fmt.Printf("%s responded in %.2f seconds\n", p.Address, latency.Seconds())
+				totalLatency += latency
+			}
+
+			p.Latency = totalLatency / 5
+
+			mu.Lock()
+			valid = append(valid, p)
+			mu.Unlock()
+		}(p)
+	}
+
+	wg.Wait()
+	return valid
+}
+
+// checkProxy packages checkCurl and checkTCP together
+func checkProxy(p Proxy) time.Duration {
+	if !checkTCP(p.Address) {
+		return 0
+	}
+	return checkCurl(p)
+}
+
+// checkTCP checks if the proxy can access TCP
+func checkTCP(address string) bool {
+	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// checkCurl checks if the proxy can curl 8.8.8.8
+func checkCurl(p Proxy) time.Duration {
+	testURL := "http://httpbin.org/get"
+	timeout := 3 * time.Second
+
+	transport := &http.Transport{}
+
+	switch p.Protocol {
+	case "socks4", "socks5":
+		proxyAddr := fmt.Sprintf("%s://%s", p.Protocol, p.Address)
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return socks.Dial(proxyAddr)(network, addr)
+		}
+	case "http", "https":
+		proxyURL, _ := url.Parse(fmt.Sprintf("http://%s", p.Address))
+		transport.Proxy = http.ProxyURL(proxyURL)
+
+	default:
+		return 0
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}
+
+	start := time.Now()
+	resp, err := client.Get(testURL)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return time.Since(start)
+	}
+
+	return 0
+}
+
+// rankProxies sorts the proxies by latency using merge sort
+func rankProxies(proxies []Proxy) []Proxy {
+	if len(proxies) <= 1 {
+		return proxies
+	}
+
+	mid := len(proxies) / 2
+	left := rankProxies(proxies[:mid])
+	right := rankProxies(proxies[mid:])
+
+	return merge(left, right)
+}
+
+func merge(left, right []Proxy) []Proxy {
+	result := make([]Proxy, 0, len(left)+len(right))
+	i, j := 0, 0
+
+	for i < len(left) && j < len(right) {
+		if left[i].Latency <= right[j].Latency {
+			result = append(result, left[i])
+			i++
+		} else {
+			result = append(result, right[j])
+			j++
+		}
+	}
+
+	result = append(result, left[i:]...)
+	result = append(result, right[j:]...)
+	return result
 }

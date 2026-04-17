@@ -21,6 +21,7 @@ type Proxy struct {
 	Latency  time.Duration
 }
 
+// Control flow
 func main() {
 	fmt.Println("== Proxy Shell Generator ==")
 	timeStart := time.Now()
@@ -40,6 +41,7 @@ func main() {
 	// TODO: Test Proxy Router
 }
 
+// Insert proxy list urls to check
 var apiURL = []string{
 	"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
 	"https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
@@ -99,6 +101,7 @@ func fetchCycle() []Proxy {
 
 			protocol := inferProtocol(url)
 
+			// Use map to dedup proxies
 			mu.Lock()
 			before := len(proxyMap)
 			for _, p := range results {
@@ -179,9 +182,19 @@ func inferProtocol(sourceURL string) string {
 		return "socks4"
 	case strings.Contains(lower, "https"):
 		return "https"
-	default:
+	case strings.Contains(lower, "http"):
 		return "http"
+	case default:
+		// TODO: add proxy protocol inference through checking socks/http conn
+		protocol := probeProtocol(url)
+		return protocol
 	}
+}
+
+// probeProtocol probes proxies in the specified url to see if they respond to http or socks transport
+func probeProtocol(url string) string {
+	// TODO: add function for probing proxies for http/sock conn
+	return nil
 }
 
 // checkList iterates through the proxylist to gather diagnostics on the proxies
@@ -246,7 +259,7 @@ func checkTCP(address string) bool {
 	return true
 }
 
-// checkCurl checks if the proxy can curl 8.8.8.8
+// checkCurl checks if the proxy can curl httpbin
 func checkCurl(p Proxy) time.Duration {
 	testURL := "http://httpbin.org/get"
 	timeout := 3 * time.Second
@@ -299,6 +312,7 @@ func rankProxies(proxies []Proxy) []Proxy {
 	return merge(left, right)
 }
 
+// Merge sort for ranking proxies
 func merge(left, right []Proxy) []Proxy {
 	result := make([]Proxy, 0, len(left)+len(right))
 	i, j := 0, 0
